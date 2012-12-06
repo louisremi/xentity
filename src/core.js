@@ -1,4 +1,5 @@
 (function($, window, document, undefined) {
+"use strict";
 
 var rcomments = /\/\*[^\uffff]*?\*\//gm,
 	rxcomponent = /\s([^{}]+)\{[^}]*-x-component.*?["'](.*?)["']/gm,
@@ -22,7 +23,7 @@ var rcomments = /\/\*[^\uffff]*?\*\//gm,
  *****************************************************************************/
 
 function xentity( nodes ) {
-	return new xentity.prototype._init( nodes );
+	return new xentity.prototype.init( nodes );
 }
 
 xentity.component = function( name, definition ) {
@@ -32,7 +33,7 @@ xentity.component = function( name, definition ) {
 	definition._components[ name ] = 1;
 
 	// Inherit from required components
-	$.each( definition.requires, function( name ) {
+	$.each( definition.requires || [], function( name ) {
 		// inherit component names
 		$.extend( definition._components, xentity.components[ name ]._components );
 
@@ -58,8 +59,8 @@ xentity.undef = {};
  *****************************************************************************/
 
 xentity.prototype = {
-	_init: function( nodes ) {
-
+	init: function( nodes ) {
+		$.prototype.init.apply( this, arguments );
 	},
 
 	is: function( name ) {
@@ -89,7 +90,7 @@ xentity.__onmutation = function() {
 // and translate it to a hijacked cascading property
 xentity._checkStylesheets = function( callback ) {
 	var _this = this,
-		stylesheets = document.querySelectorAll("style:not([xen-checked]), link:not([xen-checked])"),
+		stylesheets = document.querySelectorAll("style:not([xen-checked]), link[rel=stylesheet]:not([xen-checked])"),
 		i = stylesheets.length,
 		j = i,
 		stylesheet,
@@ -102,47 +103,80 @@ xentity._checkStylesheets = function( callback ) {
 	while ( i-- ) {
 		stylesheet = stylesheets[i];
 
+		// mark the stylesheeet as checked
+		// (this should be done first to prevent infinit loops when errors are thrown)
+		stylesheet.setAttribute( "xen-checked", true );
+
 		if ( stylesheet.nodeName == "STYLE" ) {
 			parseCss( stylesheet.innerHTML, i );
 
 		} else {
 			getCss( stylesheet.href, i );
 		}
-
-		// mark the stylesheeet as checked
-		stylesheet.setAttribute( "xen-checked", true );
 	}
 
 	function getCss( url, i ) {
 		$.ajax({
 			url: url,
 			complete: function( a,b,c ) {
-				if ( a != 404 ) {
-					parseCss( c.text, i );
-				}
+				parseCss( c.text, i, a );
 			}
 		});
 	}
 
-	function parseCss( css, i ) {
-		rules[i]  = _this._parseCss( css );
+	function parseCss( css, i, status ) {
+		var match,
+			style,
+			k,
+			innerHTML = [],
+			_rules = [],
+			selector,
+			components,
+			watched;
+
+		if ( status != 404 ) {
+			// strip comments
+			css = css.replace( rcomments, "" );
+
+			while ( ( match = rxcomponent.exec( css ) ) ) {
+				selector = match[1].replace( rclean, " " );
+				components = match[2].split(" ");
+				k = components.length;
+
+				_rules.push( [ selector, match[2] ] );
+
+				// let's determine if the selector need to be watched
+				while ( k-- ) {
+					// The definition of the component doesn't exit yet
+					if ( !xentity.components[ components[k] ] ) {
+						xentity.undef[ components[k] ] ?
+							xentity.undef[ components[k] ].push( selector ) :
+							[ selector ];
+					
+					// The definition exists and we know it handles insert
+					} else if ( xentity.components[ components[k] ].oninsert ) {
+						xentity.watched[ selector ] = watched = 1;
+						break;
+					}
+				}
+			}
+
+			rules[i]  = _rules;
+		}
+		
 
 		// build a custom <style> when all stylesheets have been parsed
 		if ( !--j ) {
 			// reorganize rules
 			rules = [].concat.apply( [], rules );
 
-			var style,
-				k = rules.length,
-				innerHTML = [];
-
 			while ( k-- ) {
 				innerHTML.unshift( rules[k][0] + "{quotes:'\"''\"''xcomponent:" + rules[k][1] + "'''}" );
 			}
 
-			if ( innerHTML ) {
+			if ( innerHTML.length ) {
 				style = document.createElement("style");
-				style.setAttribute( "xen-inited", true );
+				style.setAttribute( "xen-checked", "" );
 				style.innerHTML = innerHTML.join("");
 				head.appendChild( style );
 			}
@@ -150,42 +184,6 @@ xentity._checkStylesheets = function( callback ) {
 			callback();
 		}
 	}
-};
-
-// this is the function that actually parses the fetched css
-xentity._parseCss = function( css ) {
-	var match,
-		rules = [],
-		style = document.createElement("style");
-
-	// strip comments
-	css = css.replace( rcomments, "" );
-
-	while ( ( match = rxcomponent.exec( css ) ) ) {
-		var selector = match[1].replace( rclean, " " ),
-			components = match[2].split(" "),
-			i = components.length,
-			watched;
-
-		rules.push( [ selector, match[2] ] );
-
-		// let's determine if the selector need to be watched
-		while ( i-- ) {
-			// The definition of the component doesn't exit yet
-			if ( !xentity.components[ components[i] ] ) {
-				xentity.undef[ components[i] ] ?
-					xentity.undef[ components[i] ].push( selector ) :
-					[ selector ];
-			
-			// The definition exists and we know it handles insert
-			} else if ( xentity.components[ components[i] ].oninsert ) {
-				xentity.watched[ selector ] = watched = 1;
-				break;
-			}
-		}
-	}
-
-	return rules;
 };
 
 xentity._checkEntities = function() {

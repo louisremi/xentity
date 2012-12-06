@@ -1,4 +1,5 @@
 (function(window, document, Element, undefined) {
+"use strict";
 
 // This adpater isn't required if jQuery is present
 if ( window.jQuery ) { return; }
@@ -50,7 +51,6 @@ $.prototype = {
 	},
 
 	// check if the first element of the collection matches the given selector
-	// (doesn't match jQuery behavior exactly)
 	is: function( selector ) {
 		if ( matchesSelector ) {
 			return matchesSelector.call( this[0], selector );
@@ -112,6 +112,12 @@ $.prototype = {
 				this[i].classList.add( name ) :
 				className( this[i], "toggle", name );
 		}
+
+		return this;
+	},
+
+	each: function( collection, callback ) {
+		$.each.call( this, collection, callback );
 
 		return this;
 	}
@@ -210,7 +216,7 @@ function exa( selector, context ) {
 		) + selector;
 	}
 
-	result = ( parent || context ).querySelecorAll( selector );
+	result = ( parent || context ).querySelectorAll( selector );
 
 	if ( needTempId ) {
 		context.id = "";
